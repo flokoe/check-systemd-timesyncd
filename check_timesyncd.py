@@ -21,17 +21,36 @@ def to_dict(list):
 
     return dict(res)
 
+def get_version():
+    return int(subprocess.check_output(['systemctl', '--version'], universal_newlines=True).split("\n")[0].split(" ")[1])
+
+def parse_legacy_systemd_output():
+    output = subprocess.check_output(['timedatectl', 'status'], universal_newlines=True).split("\n")
+    res = {}
+
+    res['Timezone'] = output[3].split(':')[1].strip(' ').split(' ')[0]
+    res['NTPSynchronized'] = output[4].split(':')[1].strip(' ')
+    res['NTP'] = output[5].split(':')[1].strip(' ')
+
+    return res
+
 def main(args):
     state = 3
     state_msg = 'UNKNOWN - There is something wrong'
+    timedatectl_dict = None
 
-    timedatectl_show_dict = to_dict(subprocess.check_output(['timedatectl', 'show'], text=True).split("\n"))
-    # timedatectl_ntp_msg = to_dict(re.sub('[{ }]', '', subprocess.check_output(['timedatectl', 'show-timesync', '-p', 'NTPMessage', '--value'], text=True)).split(','))
+    systemd_version = get_version()
 
-    if args.timezone and timedatectl_show_dict['Timezone'] != args.timezone:
+    if systemd_version >= 239:
+        timedatectl_dict = to_dict(subprocess.check_output(['timedatectl', 'show'], universal_newlines=True).split("\n"))
+        # timedatectl_ntp_msg = to_dict(re.sub('[{ }]', '', subprocess.check_output(['timedatectl', 'show-timesync', '-p', 'NTPMessage', '--value'], text=True)).split(','))
+    else:
+        timedatectl_dict = parse_legacy_systemd_output()
+
+    if args.timezone and timedatectl_dict['Timezone'] != args.timezone:
         state = 2
-        state_msg = f"CRITICAL - Timezone is '{timedatectl_show_dict['Timezone']}', but should be '{args.timezone}'"
-    elif timedatectl_show_dict['NTP'] == 'yes' and timedatectl_show_dict['NTPSynchronized'] == 'yes':
+        state_msg = f"CRITICAL - Timezone is '{timedatectl_dict['Timezone']}', but should be '{args.timezone}'"
+    elif timedatectl_dict['NTP'] == 'yes' and timedatectl_dict['NTPSynchronized'] == 'yes':
         state = 0
         state_msg = 'OK - systemd-timesyncd is running fine'
     else:
